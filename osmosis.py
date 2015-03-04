@@ -1,10 +1,14 @@
 import cv2
 import os
+import glob
+import json
+import re
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-class Osmosis():
+
+class TestClass():
     def __init__(self,src_path, pxl2um, frame2sec, frameIncr = 1, frameRateConversion = 1):
         self.src = src_path
         self.pxl2um = pxl2um
@@ -13,7 +17,11 @@ class Osmosis():
         self.frameRConv = frameRateConversion
         self.imgs = self.loadImages()[0]
         self.allimgs = self.loadImages()[1]
+        self.ou_vertices = {}
         self.point = []
+        self.oudata = {'pxl2um':self.pxl2um,'frame2sec':self.frame2sec,'frameIncr':self.frameIncr,
+                  'frameRateConversion':self.frameRConv}
+        self.dumpjson(os.path.join(os.path.abspath(os.path.join(self.src,os.pardir)),'parameters'),self.oudata)
         
     def loadImages(self):
         """This methods load images to be analyzed using frameIncr"""
@@ -70,12 +78,20 @@ class Osmosis():
     def volume(self,v,d):
         L = v[3] - v[0]
         tL = v[1] - v[0]
-        tR = v[3] - v[3]
+        tR = v[3] - v[2]
         r = d/float(2);
-        return 0.001*(np.pi*L*r**2)-(np.pi*r**2)*(tL+tR)/float(2)+np.pi*(tL**3+tR**3)/float(6)
+        return 0.001*(np.pi*L*r**2)-(np.pi*r**2)*(tL+tR)*0.5+np.pi*((tL**3)+(tR**3))/float(6)
     
-    def analyze(self,ndrops,c0=[1],refFrame = 1):
-        sets = []
+    def dumpjson(self,filename,data):
+        """This function write json files to disk"""
+        with open(filename,'w') as outfile:
+            json.dump(data,outfile)
+        outfile.close()
+    
+    def analyze(self,ndrops,dropnames,c0=[1],refFrame = 1):
+        dn = dropnames
+        sets = {}
+        initSettings = {}
         allvertices = {}
         lengths = {}
         volume = {}
@@ -85,16 +101,19 @@ class Osmosis():
             print '-- Setting up drop {0}'.format(i+1)
             img = cv2.imread(self.imgs[refFrame-1])
             d = self.setDrop(img)
-            sets.append(d)
-            
+            sets[dn[i]] = d
+        self.oudata['initSettings'] = sets
+        
         #run analysis on all frames
         for d in range(ndrops):
-            lengths[d] = {}
-            volume[d] = {}
-            concentration[d] = {}
-            allvertices[d] = {}
+            for ii in range(4):
+                allvertices[dn[d]+'_'+str(ii+1)] = {}
+            lengths[dn[d]] = {}
+            volume[dn[d]] = {}
+            concentration[dn[d]] = {}
+            
             print '-- Analyzing drop {0}'.format(d+1)
-            drop = sets[d]
+            drop = sets[dn[d]]
             bx0,by0,bxf,byf = drop['bbox']['x0'],drop['bbox']['y0'],drop['bbox']['xf'],drop['bbox']['yf']
 
             dv = (drop['vertices'][1][0]-drop['vertices'][0][0], #distance between first and second vertex
@@ -104,18 +123,68 @@ class Osmosis():
             offset = drop['offset']
             vs= {}
             k = 1
-            for imgpath in self.imgs[1:]:
-                print os.path.split(imgpath)[1];
+            for imgpath in self.imgs:
+                #print os.path.split(imgpath)[1];
                 img = cv2.imread(imgpath)
                 im = img[by0:byf,bx0:bxf]
                 x1 = self.findroi(im,edge1)[0] + offset['edge1']
                 x2 = self.findroi(im,edge2)[0] + offset['edge2']
-                allvertices[d][k] = {'1':x1, '2':x1+dv[0], '3': x2-dv[1], '4':x2}
-                lengths[d][k] = x2-x1
-                volume[d][k] = self.volume((x1,x1+dv[0],x2-dv[1],x2),100)
+                allvertices[dn[d]+'_1'][k] = x1
+                allvertices[dn[d]+'_2'][k] = x1+dv[0]
+                allvertices[dn[d]+'_3'][k] = x2-dv[1]
+                allvertices[dn[d]+'_4'][k] = x2
+                lengths[dn[d]][k] = x2-x1
+                volume[dn[d]][k] = (pxl2um**3)*self.volume((x1,x1+dv[0],x2-dv[1],x2),100/float(pxl2um))
                 if k == 1:
-                    concentration[d][k] = c0[d]
+                    concentration[dn[d]][k] = c0[d]
                 else:
-                    concentration[d][k] = concentration[d][k-1]*volume[d][k-1]/float(volume[d][k])
+                    concentration[dn[d]][k] = concentration[dn[d]][k-1]*volume[dn[d]][k-1]/float(volume[dn[d]][k])
                 k+=1
+            
+            #save data to disc
+            
+            
+            pd.DataFrame(allvertices).to_csv(os.path.join(os.path.abspath(os.path.join(self.src,os.pardir)),dn[d] + '_vertices.csv'))
+            pd.DataFrame(lengths).to_csv(os.path.join(os.path.abspath(os.path.join(self.src,os.pardir)),dn[d] + '_lengths.csv'))
+            #pd.DataFrame(volume).to_csv(os.path.join(os.path.abspath(os.path.join(self.src,os.pardir)),dn[d] + '_volume.csv'))
+            #pd.DataFrame(concentration).to_csv(os.path.join(os.path.abspath(os.path.join(self.src,os.pardir)),dn[d] + '_concentration.csv'))
+        
+
+
         return allvertices,lengths,volume,concentration
+
+    def saveSettings(self):
+        self.dumpjson(os.path.join(os.path.abspath(os.path.join(self.src,os.pardir)),'settingsLog'),self.oudata)
+        print "initial settings saved on disc"
+
+    def loadResults(self,dropID):
+        src = os.path.dirname(self.src)
+        allfiles = os.listdir(src)
+        files = []
+        for f in allfiles:
+            if (dropID in f ) and ('_vertices.csv' in f):
+                files.append(f)
+        k = 1
+        for f in files:
+            d = pd.read_csv(os.path.join(src,f))
+            d.index = d['_index']
+            del d['_index']
+            self.ou_vertices[re.sub('_vertices.csv','',os.path.basename(f))] = d
+        print "veritices dataset found: ";
+        print self.ou_vertices.keys()
+        return self.ou_vertices
+
+if __name__ == '__main__':
+    #src = r'/media/camille/Seagate Backup Plus Drive/BackUp_Data/DICSETUP/20150219/Transformed/1-5' #1
+    #src = r'C:\\Users\\camille\\Box Sync\\owncloud Files\\PhD\\DoD\\20150113\\Transformed\\1' #2
+    src = r'F:\\BackUp_Data\\MIS3\\20140226\\transformed\\c03_00'
+    
+    pxl2um = 100/float(103)#150/float(92)
+    frame2sec = 60#15
+    frameRateConversion = 25
+    refFrame = 90
+    frameIncr = 1
+    test = TestClass(src,pxl2um,frame2sec,frameIncr,frameRateConversion)
+
+    #t = test.analyze(2,['_drop_02_1','drop_02_2','drop_02_17','drop_02_18'],[100,200,100,200,100],refFrame)
+    
