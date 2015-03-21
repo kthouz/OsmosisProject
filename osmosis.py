@@ -9,7 +9,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 
-class TestClass():
+class Osmosis():
+    """This class analyzes osmosis data. It contains methods to calculate size and concentration of the drop, gap size"""
     def __init__(self,src_path, pxl2um, frame2sec, frameIncr = 1, frameRateConversion = 1):
         self.src = src_path
         self.pxl2um = pxl2um
@@ -137,44 +138,49 @@ class TestClass():
                 allvertices[dn[d]+'_4'][k] = x2
                 lengths[dn[d]][k] = x2-x1
                 volume[dn[d]][k] = (pxl2um**3)*self.volume((x1,x1+dv[0],x2-dv[1],x2),100/float(pxl2um))
-                if k == 1:
-                    concentration[dn[d]][k] = c0[d]
-                else:
-                    concentration[dn[d]][k] = concentration[dn[d]][k-1]*volume[dn[d]][k-1]/float(volume[dn[d]][k])
+                #if k == 1:
+                #    concentration[dn[d]][k] = c0[d]
+                #else:
+                #    concentration[dn[d]][k] = concentration[dn[d]][k-1]*volume[dn[d]][k-1]/float(volume[dn[d]][k])
+
                 k+=1
             
             #save data to disc
             
             
             pd.DataFrame(allvertices).to_csv(os.path.join(os.path.abspath(os.path.join(self.src,os.pardir)),dn[d] + '_vertices.csv'))
-            pd.DataFrame(lengths).to_csv(os.path.join(os.path.abspath(os.path.join(self.src,os.pardir)),dn[d] + '_lengths.csv'))
+            #pd.DataFrame(lengths).to_csv(os.path.join(os.path.abspath(os.path.join(self.src,os.pardir)),dn[d] + '_lengths.csv'))
             #pd.DataFrame(volume).to_csv(os.path.join(os.path.abspath(os.path.join(self.src,os.pardir)),dn[d] + '_volume.csv'))
             #pd.DataFrame(concentration).to_csv(os.path.join(os.path.abspath(os.path.join(self.src,os.pardir)),dn[d] + '_concentration.csv'))
         
 
 
-        return allvertices,lengths,volume,concentration
+        return allvertices,lengths,volume
 
     def saveSettings(self):
         self.dumpjson(os.path.join(os.path.abspath(os.path.join(self.src,os.pardir)),'settingsLog'),self.oudata)
         print "initial settings saved on disc"
 
-    def loadResults(self,capillaryID):
+    def loadResults(self,capillaryID,vType='drop'):
         src = os.path.dirname(self.src)
         allfiles = os.listdir(src)
         files = []
         for f in allfiles:
-            if (capillaryID in f ) and ('_vertices.csv' in f):
+            if (vType+'_'+capillaryID+'_' in f ) and ('_vertices.csv' in f):
                 files.append(f)
+                
         k = 1
         for f in files:
+            #print f
             d = pd.read_csv(os.path.join(src,f))
             d.columns = ['frame','v1','v2','v3','v4']
             d.index = [i for i in d['frame']]
             del d['frame']
             self.ou_vertices[re.sub('_vertices.csv','',os.path.basename(f))] = d
-        print "veritices dataset found: ";
-        print self.ou_vertices.keys()
+        #print "veritices dataset found: ";
+        ks = self.ou_vertices.keys()
+        ks.sort()
+        print ks
         
         return self.ou_vertices
 
@@ -195,22 +201,26 @@ class TestClass():
             d = [(d1[i+1],d2[i+1]) for i in range(len(d1))]
         return d
 
-    def calculateVolNConc(self,capID,c0,dropName = None, single = True):
+    def calculateVolumes(self,capID,dropName = None, single = True):
         """This function calculate the volume and concentration of the drop.
         capID: string - capillary ID, c0: numeric or array or list - initial concentration,
         dropName: string - drop name, single: boolean - returns volume and concentration
         for a single droplet is true, otherwise it returns data for all available droplet data. Default to True"""
         d = 100 #capillary diameter
-        self.ou_vertices = self.loadResults(capID)
+        self.ou_vertices = self.loadResults(capID,vType = 'drop')
         key = dropName
         if key == None:
-            key = self.ou_vertices.keys()[0]
+            ks = self.ou_vertices.keys()
+            ks.sort()
+            key = ks[0]
             
         if single:
             #calculate the volume of a single drop
             try:
+                print key
                 df = self.ou_vertices[key]
                 df.plot()
+                plt.title(key)
                 plt.show()
                 #volume
                 vf = pd.DataFrame({key+'_vol_pl':pd.Series(data = [self.volume(df.loc[i].values,d) for i in df.index],index = df.index)})
@@ -224,6 +234,7 @@ class TestClass():
             
         else:
             #calculate the volume of a all drops
+            src = os.path.dirname(self.src)
             v = {}
             c = {}
             g = {}
@@ -231,72 +242,173 @@ class TestClass():
             ks.sort()
             for key in ks:
                 try:
+                    #print key
                     df = self.ou_vertices[key]
                     #volume
                     v[key+'_vol_pl'] = pd.Series(data = [self.volume(df.loc[i].values,d) for i in df.index],index = df.index)
-                    v0 = v[key+'_vol_pl'][v[key+'_vol_pl'].index[0]]
-                    #concentration
-                    c[key+'_vol_pl'] = pd.Series(data = [self.concentration(v[key+'_vol_pl'][i],v0,c0[ks.index(key)]
-                                                                        ) for i in v[key+'_vol_pl'].index],index = v[key+'_vol_pl'].index)
-                    #distance to neighboors
-                    g[key+'_vol_pl'] = self.d2neighboors(key)
+                    pd.DataFrame(v[key+'_vol_pl'],columns = ['volume_pl']).to_csv(os.path.join(src,key+'_volume.csv'))
                     
                 except:
                     print 'querrying an empty ou_vertices dict. Try again'
             vf = pd.DataFrame(v)
-            cf = pd.DataFrame(c)
-            gf = pd.DataFrame(g)
-            
+                        
             #generate volume plot
-            src = os.path.dirname(self.src)
+            
             fig1 = plt.figure(figsize=(6,5))
             ax1 = fig1.add_subplot(111)
             (vf/1000.0).plot(x = vf.index*self.frame2sec*self.frameRConv*self.frameIncr/3600.0,
-                    grid=False,ax=ax1,legend=False)
-            plt.legend([i+1 for i in range(len(ks))],
-                       ncol = int(math.ceil(len(ks)/4.)),
-                       loc = 'upper right')
+                    grid=False,ax=ax1,legend=False, colormap = 'jet')
+            plt.legend([re.sub('drop_'+capID+'_','',key) for key in ks],
+                       #ncol = int(math.ceil(len(ks)/10.)),
+                       #loc =4,
+                       fancybox = True, framealpha = 0.2,
+                       fontsize = 10)
             plt.xlabel('Time (hrs)')
             plt.ylabel('Volume (nl)')
             plt.savefig(os.path.join(src,capID+'_volume.png'))
             plt.savefig(os.path.join(src,capID+'_volume.eps'))
             plt.show()
 
-            #generate concentration plot
-            fig2 = plt.figure(figsize=(6,5))
-            ax2 = fig2.add_subplot(111)
-            cf.plot(x = cf.index*self.frame2sec*self.frameRConv*self.frameIncr/3600.0,
-                    grid=False,ax=ax2,legend=False)
-            plt.legend([i+1 for i in range(len(ks))],
-                       ncol = int(math.ceil(len(ks)/4.)),
-                       loc = 'upper right')
-            plt.xlabel('Time (hrs)')
-            plt.ylabel('Concentration (M)')
-            plt.savefig(os.path.join(src,capID+'_concentration.png'))
-            plt.savefig(os.path.join(src,capID+'_concentration.eps'))
-            plt.show()
-            
-            
+        return vf
 
-        return vf,cf,gf
+    def calculateConcentrations(self,capID,initCs,dropName=None,single=True):
+        """This function return the concentration given:
+        capID: str, capillary ID,
+        initCs: list of 2 elements, initial concentrations
+        dropName: str, dropName
+        single: boolean, default True"""
+        src = os.path.dirname(self.src)
+        vol = self.calculateVolumes(capID,dropName,single)
+        c0 = initCs
+        concentrations = {}
+        if single == True:
+            v = vol[key].dropna()
+            if v[v.index[0]] > v[len(v)]:
+                clist = [self.concentration(v[i],v[v.index[0]],c0[0]) for i in v.index]
+            else:
+                clist = [self.concentration(v[i],v[v.index[0]],c0[1]) for i in v.index]
+            pd.DataFrame(clist, columns = ['concentration_M']).to_csv(os.path.join(src,key+'_concentration.csv'))
+            concentrations[key] = pd.Series(data = clist, index = v.index)
+        else:
+            for key in vol.columns:
+                v = vol[key].dropna()
+                if v[v.index[0]] > v[len(v)]:
+                    clist = [self.concentration(v[i],v[v.index[0]],c0[0]) for i in v.index]
+                else:
+                    clist = [self.concentration(v[i],v[v.index[0]],c0[1]) for i in v.index]
+                
+                pd.DataFrame(clist, columns = ['concentration_M']).to_csv(os.path.join(src,re.sub('_vol_pl','',key)+'_concentration.csv'))
+                concentrations[key] = pd.Series(data = clist, index = v.index)
+
+        #generate concentration plot
+        cf = pd.DataFrame(concentrations)
+        ks = vol.keys()
+        fig2 = plt.figure(figsize=(6,5))
+        ax2 = fig2.add_subplot(111)
+        cf.plot(x = cf.index*self.frame2sec*self.frameRConv*self.frameIncr/3600.0,
+                grid=False,ax=ax2,legend=False, colormap = 'jet')
+        plt.legend([re.sub('_vol_pl','',re.sub('drop_'+capID+'_','',key)) for key in ks],
+                #ncol = int(math.ceil(len(ks)/4.)),
+                #loc = 4,
+                fancybox = True, framealpha = 0.2,
+                fontsize = 10)
+        plt.xlabel('Time (hrs)')
+        plt.ylabel('Concentration (M)')
+        plt.savefig(os.path.join(src,capID+'_concentration.png'))
+        plt.savefig(os.path.join(src,capID+'_concentration.eps'))
+        plt.show()
+        
+        return pd.DataFrame(concentrations)
+
+    def calculateGap(self,capID,dropName=None,vType='gap', single=True):
+        """Calculate the gap distance between drops:
+        capID: str, capillary ID
+        dropName: str, name of the gap file
+        vType: str boolean, can only take values gap and/or drop
+        single: boolean"""
+        src = os.path.dirname(self.src)
+        vertices = self.loadResults(capID,vType)
+        ks = vertices.keys()
+        ks.sort()
+        gapdistance = {}
+        if dropName == None:
+            key = ks[0]
+        else:
+            key = dropName
+            
+        if single == True:
+            v = vertices[key]
+            gap = (v['v4'] - v['v1'])*self.pxl2um
+            gapdistance[key] = gap
+            pd.DataFrame(gap,columns = ['gap_um']).to_csv(os.path.join(src,key+'.csv'))
+        else:
+            for key in ks:
+                v = vertices[key]
+                gap = (v['v4'] - v['v1'])*self.pxl2um
+                gapdistance[key] = gap
+                pd.DataFrame(gap,columns = ['gap_um']).to_csv(os.path.join(src,key+'.csv'))
+        #plot gap distance
+        cf = pd.DataFrame(gapdistance)
+        fig3 = plt.figure(figsize=(6,5))
+        ax3 = fig3.add_subplot(111)
+        (cf/10.0).plot(x = cf.index*self.frame2sec*self.frameRConv*self.frameIncr/3600.0,
+                grid=False,ax=ax3,legend=False, colormap = 'jet')
+        plt.legend([re.sub('gap_'+capID+'_','',key) for key in ks],
+                #ncol = int(math.ceil(len(ks)/4.)),
+                #loc = 4,
+                fancybox = True, framealpha = 0.2,
+                fontsize = 10)
+        plt.xlabel('Time (hrs)')
+        plt.ylabel('distance between two drops (x10um)')
+        plt.savefig(os.path.join(src,capID+'_gap.png'))
+        plt.savefig(os.path.join(src,capID+'_gap.eps'))
+        plt.show()
+                          
+        return pd.DataFrame(gapdistance)
+
+    def findVelocitySquared(self,capID,dropName = None, single = True):
+        src = os.path.dirname(self.src)
+        self.ou_vertices = self.loadResults(capID,vType = 'drop')
+        vertices = self.ou_vertices
+        position = {}
+        velocitySquared = {}
+        if single == True:
+            if dropName == None:
+                dropName = vertices.keys()[0]
+                vert = vertices[dropName]
+            else:
+                vert = vertices[dropName]
+            p = ((vert['v4'] - vert['v1'])/2.0)*self.pxl2um
+            v = pd.Series([(p[i]-p[i-1])/float(i-(i-1)) for i in p.index[1:]],p.index[1:])
+            position[re.sub('drop_','',dropName)] = p
+            velocitySquared[re.sub('drop_','',dropName)] = v**2
+            pd.DataFrame(velocitySquared[re.sub('drop_','',key)]).to_csv(os.path.join(src,dropName+'_vSquared.csv'))
+        else:
+            for key in vertices.keys():
+                vert = vertices[key]
+                p = ((vert['v4'] - vert['v1'])/2.0)*self.pxl2um
+                v = pd.Series([(p[i]-p[i-1])/float(i-(i-1)) for i in p.index[1:]],p.index[1:])
+                position[re.sub('drop_','',key)] = p
+                velocitySquared[re.sub('drop_','',key)] = v**2
+                pd.DataFrame(velocitySquared[re.sub('drop_','',key)]).to_csv(os.path.join(src,key+'_vSquared.csv'))
+
+        position = pd.DataFrame(position)
+        velocitySquared = pd.DataFrame(velocitySquared)
+        return position,velocitySquared
+        
         
 
 if __name__ == '__main__':
+
+    src = r'F:\BackUp_Data\MIS3\20140226\transformed\c04_02'
     
-    src = r'path\\to\\directory\\Transformed'
-    
-    pxl2um = 100/float(103)#150/float(92)
-    frame2sec = 60#15
-    frameRateConversion = 25
-    refFrame = 90
+    pxl2um = 100/float(117)#100/float(103)#150/float(92)
+    frame2sec = 90#15
+    frameRateConversion = 25#8#25
+    refFrame = 15#250
     frameIncr = 1
     test = TestClass(src,pxl2um,frame2sec,frameIncr,frameRateConversion)
-    
-    #for analysis uncomment this line
-    #t = test.analyze(1,['_drop_00_06','drop_02_2','drop_02_17','drop_02_18'],[200,100,200,100,200,100],refFrame)
-    
-    #get equilibrium concentration and volume plots
-    data = test.calculateVolNConc('00',[.2,.1,.2,.1,.2,.1,.2],single=False)
 
-    
+    #uncomment this line to analyze drop/gap sizes sizes
+    #t = test.analyze(1,['_gap_02_11-12','drop_02_2','drop_02_17','drop_02_18'],[200,100,100,200,100],refFrame)
     
