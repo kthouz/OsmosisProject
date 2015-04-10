@@ -7,11 +7,14 @@ import math
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import scipy.optimize as scipyopt
+import pprint
 
 
 class Osmosis():
-    """This class analyzes osmosis data. It contains methods to calculate size and concentration of the drop, gap size"""
-    def __init__(self,src_path, pxl2um, frame2sec, frameIncr = 1, frameRateConversion = 1):
+    """This class analyzes osmosis data"""
+    def __init__(self,src_path, pxl2um, frame2sec, medium, frameIncr = 1, frameRateConversion = 1):
+        print 'locating and loading '+src+' ...'
         self.src = src_path
         self.pxl2um = pxl2um
         self.frame2sec = frame2sec
@@ -21,9 +24,11 @@ class Osmosis():
         self.allimgs = self.loadImages()[1]
         self.ou_vertices = {}
         self.point = []
+        self.medium = medium
         self.oudata = {'pxl2um':self.pxl2um,'frame2sec':self.frame2sec,'frameIncr':self.frameIncr,
-                  'frameRateConversion':self.frameRConv}
-        self.dumpjson(os.path.join(os.path.abspath(os.path.join(self.src,os.pardir)),'parameters'),self.oudata)
+                  'frameRateConversion':self.frameRConv,'medium':self.medium}
+        print 'successful initiation'
+        
         
     def loadImages(self):
         """This methods load images to be analyzed using frameIncr"""
@@ -92,6 +97,7 @@ class Osmosis():
         outfile.close()
     
     def analyze(self,ndrops,dropnames,c0=[1],refFrame = 1):
+        self.dumpjson(os.path.join(os.path.abspath(os.path.join(self.src,os.pardir)),'parameters'),self.oudata)
         dn = dropnames
         sets = {}
         initSettings = {}
@@ -163,16 +169,23 @@ class Osmosis():
 
     def loadResults(self,capillaryID,vType='drop'):
         src = os.path.dirname(self.src)
+        
         allfiles = os.listdir(src)
-        files = []
-        for f in allfiles:
-            if (vType+'_'+capillaryID+'_' in f ) and ('_vertices.csv' in f):
-                files.append(f)
-                
+        #files = []
+        #for f in allfiles:
+        #    if (vType+'_'+capillaryID+'_' in f ) and ('_vertices.csv' in f):
+        #        files.append(f)
+        if vType == 'drop':
+            files = glob.glob(src+'\drop'+'_'+capillaryID+'*vertices.csv')
+            files = [x for x in files if not 'gap' in x]
+        if vType == 'gap':
+            files = glob.glob(src+'\gap'+'_'+capillaryID+'*vertices.csv')
+            files = [x for x in files if not 'drop' in x]
         k = 1
         for f in files:
-            #print f
-            d = pd.read_csv(os.path.join(src,f))
+            print f
+            d = pd.read_csv(f)
+            #d = pd.read_csv(os.path.join(src,f))
             d.columns = ['frame','v1','v2','v3','v4']
             d.index = [i for i in d['frame']]
             del d['frame']
@@ -180,7 +193,7 @@ class Osmosis():
         #print "veritices dataset found: ";
         ks = self.ou_vertices.keys()
         ks.sort()
-        print ks
+        #print ks
         
         return self.ou_vertices
 
@@ -203,9 +216,9 @@ class Osmosis():
 
     def calculateVolumes(self,capID,dropName = None, single = True):
         """This function calculate the volume and concentration of the drop.
-        capID: string - capillary ID, c0: numeric or array or list - initial concentration,
-        dropName: string - drop name, single: boolean - returns volume and concentration
-        for a single droplet is true, otherwise it returns data for all available droplet data. Default to True"""
+        capID: string - capillary ID,
+        dropName: string - drop name,
+        single: boolean - returns volume and concentration for a single droplet is true, otherwise it returns data for all available droplet data. Default to True"""
         d = 100 #capillary diameter
         self.ou_vertices = self.loadResults(capID,vType = 'drop')
         key = dropName
@@ -216,21 +229,21 @@ class Osmosis():
             
         if single:
             #calculate the volume of a single drop
-            try:
-                print key
-                df = self.ou_vertices[key]
-                df.plot()
-                plt.title(key)
-                plt.show()
+            #try:
+            print key
+            df = self.ou_vertices[key]
+            df.plot()
+            plt.title(key)
+            plt.show()
                 #volume
-                vf = pd.DataFrame({key+'_vol_pl':pd.Series(data = [self.volume(df.loc[i].values,d) for i in df.index],index = df.index)})
-                v0 = vf.loc[vf.index[0]][0]
+            vf = pd.DataFrame({key+'_vol_pl':pd.Series(data = [self.volume(df.loc[i].values,d) for i in df.index],index = df.index)})
+            v0 = vf.loc[vf.index[0]][0]
                 #concentration
-                cf = pd.DataFrame({key+'_con_M':pd.Series(data = [self.concentration(vf.loc[i][0],v0,c0) for i in vf.index], index = vf.index)})
+            cf = pd.DataFrame({key+'_con_M':pd.Series(data = [self.concentration(vf.loc[i][0],v0,c0) for i in vf.index], index = vf.index)})
                 #distance to neighboors
-                gf = pd.DataFrame({key+'_d':pd.Series(data = self.d2neighboors(key), index = vf.index)})
-            except:
-                print 'querrying an empty ou_vertices dict. Try again'
+            gf = pd.DataFrame({key+'_d':pd.Series(data = self.d2neighboors(key), index = vf.index)})
+            #except:
+            #print 'querrying an empty ou_vertices dict. Try again'
             
         else:
             #calculate the volume of a all drops
@@ -241,15 +254,15 @@ class Osmosis():
             ks = self.ou_vertices.keys()
             ks.sort()
             for key in ks:
-                try:
+                #try:
                     #print key
-                    df = self.ou_vertices[key]
+                df = self.ou_vertices[key]
                     #volume
-                    v[key+'_vol_pl'] = pd.Series(data = [self.volume(df.loc[i].values,d) for i in df.index],index = df.index)
-                    pd.DataFrame(v[key+'_vol_pl'],columns = ['volume_pl']).to_csv(os.path.join(src,key+'_volume.csv'))
+                v[key+'_vol_pl'] = pd.Series(data = [self.volume(df.loc[i].values,d) for i in df.index],index = df.index)
+                pd.DataFrame(v[key+'_vol_pl'],columns = ['volume_pl']).to_csv(os.path.join(src,key+'_volume.csv'))
                     
-                except:
-                    print 'querrying an empty ou_vertices dict. Try again'
+                #except:
+                #print 'querrying an empty ou_vertices dict. Try again'
             vf = pd.DataFrame(v)
                         
             #generate volume plot
@@ -395,20 +408,121 @@ class Osmosis():
         position = pd.DataFrame(position)
         velocitySquared = pd.DataFrame(velocitySquared)
         return position,velocitySquared
+
+    def calculateRate(self,capID,dropSuffix,params):
+        """This method calculate the rate of exchange
+        capID: str, capillary ID
+        dropSuffix: str, suffix of the format xx
+        params: tuple or list, initial guesses for fitting"""
+        #get data from file
+        df = pd.read_csv(os.path.join(os.path.dirname(self.src),'drop_'+capID+'_'+dropSuffix+'_concentration.csv'))
+        df[df.columns[0]] = df[df.columns[0]]*float(self.pxl2um)
         
+        #fit
+        fitpar,covpar = scipyopt.curve_fit(self.fit_func,df[df.columns[0]].values,df[df.columns[1]].values,p0=params)
+        return fitpar, covpar
+
+    def fit_func(self,xdata,a,b,x0,T):
+        return a*np.exp(-(xdata-x0)/T)#-b
+
+    def rsquared(self,x,y):
+        pass
+
+    def report(self,capID = '00'):
+        """This method make and save a report about a drop as a json file. The json has followin keys
+        * dropID: the drop identification string, AADDDDDDDDDCCNN. where AA stands for the setup used
+        (00: New Microscope, 01: DIC SETUP, 02: MIS2, 03:MIS3), DDDDDDDDD is the experiment id (eg: 20150401b)
+        CC is the capillary number and NN is the drop number
+        * v0: initial volume
+        * vf: final volumne
+        * c0: initial concentration
+        * cf: final concentration
+        * medium: medium identification string, format ZZZXX. REA000: oil without surfactant, REA002: oil with 0.02%REA,
+        REA020: oil with 0.2%REA, REA200: oil with 2%REA, REA400: oil with 4%REA, AIR000: no oil
+        * g10: initial gap to first neighbor
+        * g1f: final gap to first neighbor
+        * g20: initial gap to second neighbor
+        * g2f: final gap to second neighbor
+        * T: exchan rate"""
+        collection = {}
+        doc = {}
+        setups = {'New Microscope':'00','DICSETUP':'01','MIS2':'02','MIS3':'03'}
+        usepath = self.src
+        # read volume files
+        vfiles = glob.glob(usepath+'\drop_'+capID+'*volume.csv')
+        print(len(vfiles))
+        # read concentration files
+        cfiles = glob.glob(usepath+'\drop_'+capID+'*concentration.csv')
+        print(len(cfiles))
+        # read gap files
+        vertfiles = glob.glob(usepath+'\gap_'+capID+'*.csv')
+        gfiles = []
+        for f in vertfiles:
+            if not ('vertices' in f):
+                gfiles.append(f)
+        print(len(gfiles))
+
+        for f in vfiles:
+            doc['path'] = f
+            data = pd.read_csv(f)
+            #doc['volume'] = data.to_dict()
+            doc['v0'] = data.volume_pl[:3].mean()
+            doc['vf'] = data.volume_pl[-3:].mean()
+            data = pd.read_csv(re.sub('volume','concentration',f))
+            #doc['concentration'] = data.to_dict()
+            doc['c0'] = data.concentration_M[:3].mean()
+            doc['cf'] = data.concentration_M[-3:].mean()
+            #ind = vfiles.index(f)
+            ind = int(re.sub('_volume.csv','',f)[-2:])
+            
+            if ind == 1:
+                data = pd.read_csv(os.path.join(os.path.dirname(f),'gap_'+capID+'_''{0:02}-{1:02}.csv'.format(ind,ind+1)))
+                #data = pd.read_csv(gfiles[ind])
+                #data['n2'] = data.to_dic()
+                doc['n10'] = np.nan
+                doc['n1f'] = np.nan
+                doc['n20'] = math.ceil(data.gap_um[:3].mean())
+                doc['n2f'] = math.ceil(data.gap_um[-3:].mean())
+            if ind == len(gfiles):
+                data = pd.read_csv(os.path.join(os.path.dirname(f),'gap_'+capID+'_''{0:02}-{1:02}.csv'.format(ind-1,ind)))
+                #data = pd.read_csv(gfiles[ind-1])
+                #data['n1'] = data.to_dic()
+                doc['n10'] = math.ceil(data.gap_um[:3].mean())
+                doc['n1f'] = math.ceil(data.gap_um[-3:].mean())
+                doc['n20'] = np.nan
+                doc['n2f'] = np.nan
+            if ind>1 and ind<len(gfiles):
+                data = pd.read_csv(os.path.join(os.path.dirname(f),'gap_'+capID+'_''{0:02}-{1:02}.csv'.format(ind-1,ind)))
+                #data = pd.read_csv(gfiles[ind-1])
+                doc['n10'] = math.ceil(data.gap_um[:3].mean())
+                doc['n1f'] = math.ceil(data.gap_um[-3:].mean())
+                data = pd.read_csv(os.path.join(os.path.dirname(f),'gap_'+capID+'_''{0:02}-{1:02}.csv'.format(ind,ind+1)))
+                #data = pd.read_csv(gfiles[ind])
+                doc['n20'] = math.ceil(data.gap_um[:3].mean())
+                doc['n2f'] = math.ceil(data.gap_um[-3:].mean())
+            #pprint.pprint(doc)
+            collection[ind] = doc
+            self.dumpjson(re.sub('_volume.csv','',f),doc)
+            
+        return collection, vfiles, cfiles, gfiles
         
 
 if __name__ == '__main__':
 
-    src = r'F:\BackUp_Data\MIS3\20140226\transformed\c04_02'
+    #src = r'F:\BackUp_Data\MIS3\20140226\transformed\c04_02'
+    #src = r'F:\BackUp_Data\Old PIM\Camille\20140407\BBB2'
+    #src = r'G:\BackUp_Data\MIS3\20150321\transformed\c07'
+    #src = r'G:\BackUp_Data\MIS3\20140226\transformed'
+    src = r'G:\BackUp_Data\MIS2\20150219\transformed'
     
-    pxl2um = 100/float(117)#100/float(103)#150/float(92)
-    frame2sec = 90#15
-    frameRateConversion = 25#8#25
-    refFrame = 15#250
+    
+    pxl2um =100/float(117)#100/float(100)#100/float(117)#100/float(103)#150/float(92)
+    frame2sec = 82#60#15
+    frameRateConversion = 8#25
+    refFrame = 1#250
     frameIncr = 1
-    test = TestClass(src,pxl2um,frame2sec,frameIncr,frameRateConversion)
+    med = 'REA200'
+    test = Osmosis(src,pxl2um,frame2sec,med,frameIncr,frameRateConversion)
 
-    #uncomment this line to analyze drop/gap sizes sizes
-    #t = test.analyze(1,['_gap_02_11-12','drop_02_2','drop_02_17','drop_02_18'],[200,100,100,200,100],refFrame)
+    #t = test.analyze(1,['gap_00_10-11','drop_00_19','drop_02_2','drop_02_17','drop_02_18'],[100,200,100,200,100],refFrame)
     
