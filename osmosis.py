@@ -14,6 +14,14 @@ import pprint
 class Osmosis():
     """Osmosis experiment class"""
     def __init__(self,src_path, pxl2um, frame2sec, medium, frameIncr = 1, frameRateConversion = 1):
+        """Initialize the object
+        src_path: str, path to directory containing raw images
+        pxl2um: double, number of micron per pixel
+        frame2sec: double, 1/framerate. How much seconds between two consecutive frames
+        medium: str, concenctration of surfactant in oil
+        frameIncr: int, number of frames to skip during analysis when reading from the directory
+        frameRateConversion: double, sometimes the images in the directory may be filtered at some initial frame rate"""
+        
         print 'locating and loading '+src+' ...'
         self.src = src_path
         self.pxl2um = pxl2um
