@@ -12,7 +12,7 @@ import pprint
 
 
 class Osmosis():
-    """This class analyzes osmosis data"""
+    """Osmosis experiment class"""
     def __init__(self,src_path, pxl2um, frame2sec, medium, frameIncr = 1, frameRateConversion = 1):
         print 'locating and loading '+src+' ...'
         self.src = src_path
@@ -31,7 +31,7 @@ class Osmosis():
         
         
     def loadImages(self):
-        """This methods load images to be analyzed using frameIncr"""
+        """This methods loads images to be analyzed using frameIncr"""
         try:
             allimgs = os.listdir(self.src)
             indices = np.arange(0,len(allimgs),self.frameIncr)
@@ -41,10 +41,12 @@ class Osmosis():
         return [imgs,allimgs]
     
     def __onclick__(self,click):
+        """Method to detect a mouse click"""
         self.point.append((int(click.xdata),int(click.ydata)))
         return self.point
         
     def getCoord(self,img,s):
+        """Method to get and record coordinates of the clicked position"""
         fig = plt.figure()
         plt.imshow(img)
         plt.title(s)
@@ -54,6 +56,7 @@ class Osmosis():
         return self.point
     
     def getBox(self,img,s):
+        """Method to get and return selected box"""
         self.point = []
         vertices = self.getCoord(img,s)[-2:]
         x0 = int(min(vertices[0][0],vertices[1][0]))
@@ -64,6 +67,7 @@ class Osmosis():
         return roi
     
     def findroi(self,img,tmplt):
+        """Match object and find the region of interest"""
         res = cv2.matchTemplate(img,tmplt,eval('cv2.TM_SQDIFF'))
         _,_,min_loc,_ = cv2.minMaxLoc(res)
         return min_loc
@@ -83,6 +87,7 @@ class Osmosis():
         return drop
     
     def volume(self,v,d):
+        """Calculate volume of the drop"""
         L = (v[3] - v[0])*self.pxl2um
         tL = (v[1] - v[0])*self.pxl2um
         tR = (v[3] - v[2])*self.pxl2um
@@ -91,7 +96,7 @@ class Osmosis():
         return 0.001*((p*L*r**2)-(0.5*p*r**2*(tR+tL))+(p*((tL**3)+(tR**3))/6.0))
     
     def dumpjson(self,filename,data):
-        """This function write json files to disk"""
+        """This function writes json files to disk"""
         with open(filename,'w') as outfile:
             json.dump(data,outfile)
         outfile.close()
