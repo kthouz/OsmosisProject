@@ -1,40 +1,42 @@
-Python 2.7.10 (v2.7.10:15c95b7d81dc, May 23 2015, 09:33:12) 
-[GCC 4.2.1 (Apple Inc. build 5666) (dot 3)] on darwin
-Type "copyright", "credits" or "license()" for more information.
->>> WARNING: The version of Tcl/Tk (8.5.9) in use may be unstable.
-Visit http://www.python.org/download/mac/tcltk/ for current information.
-================================ RESTART ================================
->>> 
->>> x = [1,2,3]
->>> y = [0,0,0]
->>> z = [0,0,0]
->>> dx = [0.5, 0.5, 0.5]
->>> dy = [0.5, 0.5, 0.5]
->>> dz = [5, 4, 7]
->>> bar3d(x, y, z, dx, dy, dz, color='b', zsort='average', *args, **kwargs)
+import pandas as pd
+import numpy as np
+from mpl_toolkits.mplot3d import Axes3D
+import matplotlib.pyplot as plt
 
-Traceback (most recent call last):
-  File "<pyshell#6>", line 1, in <module>
-    bar3d(x, y, z, dx, dy, dz, color='b', zsort='average', *args, **kwargs)
-NameError: name 'bar3d' is not defined
->>> from matplotlib
-SyntaxError: invalid syntax
->>> import matplotlib
->>> ================================ RESTART ================================
->>> 
->>> ================================ RESTART ================================
->>> 
-red 0
-blue 6.87405285471
-red 0
-blue 0.283038704963
-m 0
-c 5.95932543072
-red 12.6291128044
-blue 12.7291128044
-m 0
-c 0.1
-red 0.2
-blue 6.56832535152
-y 6.66832535152
->>> 
+#import data
+filename1 = '/Users/cgirabawe/Documents/OneDrive/DoD_Backup/BackUp_Data/allresults4f_tmp.csv'
+df = pd.read_csv(filename1)
+filename2 = '/Users/cgirabawe/Documents/OneDrive/DoD_Backup/BackUp_Data/datatbl.csv'
+data = pd.read_csv(filename2)
+gaps = df[['n10','n1f','n20','n2f']].min(axis = 1)
+gaps = pd.DataFrame(gaps, columns = ['d'])
+cols = data.columns
+data = [data.c0,data.cf,data.v0,data.vf,data.expectedvf,data.expectedcf,data.deviation,gaps.d,df.Medium]
+data = pd.DataFrame(data).T
+logd = pd.Series(np.round(map(lambda x:np.log10(x+0.1), data.d)))
+
+
+#generate plots
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+ax0 = fig.add_subplot(111, projection='3d')
+
+#colors dict
+clrs = {'0.20%':'m','0.60%':'c','2%':'red','4%':'blue','Air+2%':'y'}
+
+for ld in sorted(pd.unique(logd))[0:1]:
+    width = 0
+    tmp = data[logd == ld]
+    for m in pd.unique(tmp.Medium):
+        tmp1 = tmp[tmp.Medium == m]
+        #print clrs[m], width
+        #print tmp1.head(10)
+        xy = ax0.hist(tmp1.deviation.values)
+        ys = xy[0]
+        xs = xy[1]
+        ax.bar(xs[:-1]+width, ys, zs=[ld]*len(xs), zdir = 'y', color=[clrs[m]]*len(xs))
+        width += (xs[1:]-xs[:-1])[0]
+ax.set_xlabel('Deviation (%)')
+ax.set_ylabel('d (um)')
+ax.set_zlabel('count')
+plt.show()
